@@ -1,53 +1,87 @@
-
 #include <esp_now.h>
 #include <WiFi.h>
 
-// Structure example to receive data
-// Must match the sender structure
+// 用于接收数据的结构体定义（必须与发送方结构体匹配）
 typedef struct struct_message {
-    char a[32];
-    int b;
-    float c;
-    bool d;
+    char a[32];   // 字符数组
+    int voltage;   // 电压值（修改为有意义的变量名）
+    float c;      // 保留字段
+    bool currentState; // 当前电流状态（修改为有意义的变量名）
 } struct_message;
 
-// Create a struct_message called myData
+// 创建结构体实例存储接收数据
 struct_message myData;
 
-// callback function that will be executed when data is received
-void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
-  memcpy(&myData, incomingData, sizeof(myData));
-  Serial.print("Bytes received: ");
-  Serial.println(len);
-  Serial.print("Char: ");
-  Serial.println(myData.a);
-  Serial.print("Int: ");
-  Serial.println(myData.b);
-  Serial.print("Float: ");
-  Serial.println(myData.c);
-  Serial.print("Bool: ");
-  Serial.println(myData.d);
-  Serial.println();
-}
- 
-void setup() {
-  // Initialize Serial Monitor
-  Serial.begin(115200);
-  
-  // Set device as a Wi-Fi Station
-  WiFi.mode(WIFI_STA);
+// 引脚定义
+const int controlPin = 2;  // 控制引脚
 
-  // Init ESP-NOW
-  if (esp_now_init() != ESP_OK) {
-    Serial.println("Error initializing ESP-NOW");
-    return;
+// 电流状态跟踪变量
+bool lastCurrentState = false;  // 存储上一次的电流状态
+
+// 接收数据回调函数
+void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
+  // 保存上一次的电流状态用于比较
+  bool previousState = myData.currentState;
+  
+  // 将原始数据复制到结构体
+  memcpy(&myData, incomingData, sizeof(myData));
+  
+  // 串口打印接收信息
+  Serial.print("接收字节数: ");
+  Serial.println(len);
+  Serial.print("字符: ");
+  Serial.println(myData.a);
+  Serial.print("电压: ");
+  Serial.println(myData.voltage);
+  Serial.print("浮点: ");
+  Serial.println(myData.c);
+  Serial.print("电流状态: ");
+  Serial.println(myData.currentState ? "true" : "false");
+  Serial.println();
+  
+  // 判断逻辑：电压 > 800 或 电流状态变化
+  bool conditionMet = false;
+  
+  if (myData.voltage > 800) {
+    Serial.println("触发条件：电压超过800");
+    conditionMet = true;
   }
   
-  // Once ESPNow is successfully Init, we will register for recv CB to
-  // get recv packer info
-  esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
+  if (myData.currentState != previousState) {
+    Serial.println("触发条件：电流状态发生变化");
+    conditionMet = true;
+  }
+  
+  // 根据条件设置控制引脚
+  digitalWrite(controlPin, conditionMet ? HIGH : LOW);
+  
+  // 更新上一次的电流状态
+  lastCurrentState = myData.currentState;
 }
- 
-void loop() {
 
+void setup() {
+  // 初始化串口通信
+  Serial.begin(115200);
+  
+  // 设置控制引脚为输出模式
+  pinMode(controlPin, OUTPUT);
+  digitalWrite(controlPin, LOW); // 初始化为低电平
+  
+  // 设置WiFi为工作站模式
+  WiFi.mode(WIFI_STA);
+
+  // 初始化ESP-NOW协议
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("ESP-NOW初始化失败");
+    while(1); // 停止执行
+  }
+  
+  // 注册接收回调函数
+  esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
+  
+  Serial.println("接收器已启动，等待数据...");
+}
+
+void loop() {
+  // 主循环无需操作，数据接收通过回调异步处理
 }
